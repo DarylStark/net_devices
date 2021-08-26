@@ -9,4 +9,3 @@ credentials = {
     'username': None,
     'password': None
 }
-

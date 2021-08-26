@@ -1,0 +1,16 @@
+{
+    "python.pythonPath": "/var/adm/venvs/production/bin/python",
+    "python.linting.pylintEnabled": true,
+    "python.linting.pycodestyleEnabled": true,
+    "python.linting.enabled": true,
+    "python.analysis.extraPaths": [
+        "src"
+    ],
+    // Python formatting
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "autopep8",
+    "python.formatting.autopep8Args": [
+        "--ignore",
+        "E402"
+    ]
+}

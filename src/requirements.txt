@@ -1,2 +1,6 @@
+pylint==2.10.2
+pycodestyle==2.7.0
+pytest==6.2.4
+autopep8==1.5.7
 genie==21.7
 pyats==21.7
