@@ -12,6 +12,8 @@ from enum import Enum
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from unicon.core.errors import ConnectionError
+from genie.libs.parser.utils.common import ParserNotFound
+from genie.metaparser.util.exceptions import SchemaEmptyParserError
 
 
 class DeviceType(Enum):
@@ -207,7 +209,10 @@ class TestBed:
             f'device "{device.name}"')
 
         if device.is_connected():
-            return_dict[device.name] = device.parse(command)
+            try:
+                return_dict[device.name] = device.parse(command)
+            except (ParserNotFound, SchemaEmptyParserError):
+                return_dict[device.name] = None
         else:
             self.logger.warning(
                 f'Skipping device "{device}" because it is not connected')
