@@ -9,6 +9,9 @@ from genie.testbed import load
 import unicon.core.errors
 from net_devices import credentials
 from enum import Enum
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from unicon.core.errors import ConnectionError
 
 
 class DeviceType(Enum):
@@ -58,8 +61,9 @@ class TestBed:
     def __init__(
         self,
         devices: Optional[Union[List, str, Device]] = None,
-        connect: bool = True,
-        log_output: bool = False
+        auto_connect: bool = True,
+        log_output: bool = False,
+        use_testbed: bool = False
     ) -> None:
         """
             The initiator can be used to configure the devices to
@@ -73,7 +77,7 @@ class TestBed:
                 device as Device-object, a list of strings or a list
                 of Device-objects.
 
-            connect : bool [default=True]
+            auto_connect : bool [default=True]
                 Determines if the devices should be connected while
                 starting the context manager.
 
@@ -81,20 +85,31 @@ class TestBed:
                 Determines if the output of the sessions should be
                 written to STDOUT.
 
+            use_testbed: bool [default=False]
+                Determines how to connect and execute commands. If it
+                is set to True, the Cisco Testbed is used. If set to
+                False, we use a own ThreadPoolExecutor. The former is
+                more standadized, but if one device fail, they all
+                fail.
+
             Returns
             -------
             None
         """
 
+        # Create a logger
+        self.logger = logging.getLogger('TestBed')
+
         # Set the object variables
-        self.connect = connect
+        self.auto_connect = auto_connect
         self.log_output = log_output
+        self.use_testbed = use_testbed
 
         # Create a empty list of devices
         self.devices: List[Device] = list()
 
         # Create empty testbed
-        self.testbed: list = list()
+        self.testbed = None
         self.testbed_devices: Dict = {'devices': dict()}
 
         # Add the devices
@@ -123,28 +138,194 @@ class TestBed:
         if type(devices) is str:
             self.add_devices(Device(hostname=devices))
         elif type(devices) is Device:
+            self.logger.info(f'Adding device "{devices.hostname}"')
             self.devices.append(devices)
         elif type(devices) is list:
             for device in devices:
                 self.add_devices(device)
 
-    def __enter__(self):
-        """ Start of the context manager """
+    def load_testbed(self):
+        """ Method that loaded the testbed-object """
+        if self.testbed is None:
+            # Create the Cisco TestBeds
+            self.create_cisco_testbed()
 
-        # Create the Cisco TestBeds
-        self.create_cisco_testbed()
+            # Load the devices
+            self.testbed = load(self.testbed_devices)
 
-        # Create a Cisco TestBed
-        self.testbed = load(self.testbed_devices)
+    def connect_device(self, device) -> None:
+        """
+            Method to connect to a device.
 
-        # Connect, if we need to
-        if self.connect:
+            Parameters
+            ----------
+            device
+                The device to connect to
+
+            Returns
+            -------
+            None
+        """
+        self.logger.info(f'Connecting to {device.name}')
+        try:
+            device.connect(
+                init_exec_commands=[],
+                init_config_commands=[],
+                log_stdout=self.log_output)
+        except ConnectionError:
+            self.logger.error(f'Couldn\'t connect to device {device.name}')
+
+    def parse_command(self, arguments: dict) -> None:
+        """
+            Method to run a parse command on a device
+
+            Parameters
+            ----------
+            arguments
+                The arguments given to the method. Is done by a dict
+                because that is the way the ThreadPoolExecutor works.
+                Should contain the following keys:
+                - 'device': the device object to run it on
+                - 'command': the command to run
+                - 'return_dict': a dict where we can place the return
+                   values
+
+            Returns
+            -------
+            None
+        """
+
+        try:
+            device = arguments['device']
+            command = arguments['command']
+            return_dict = arguments['return_dict']
+        except KeyError:
+            return None
+
+        self.logger.info(
+            f'Running the command "{command}" on ' +
+            f'device "{device.name}"')
+
+        if device.is_connected():
+            return_dict[device.name] = device.parse(command)
+        else:
+            self.logger.warning(
+                f'Skipping device "{device}" because it is not connected')
+
+    def parse(self, command: str, use_testbed: Optional[bool] = None) -> dict:
+        """
+            Method to run a parsed command.
+
+            Parameters
+            ----------
+            command : str
+                The command to send.
+
+            use_testbed : Optional[bool] [default=None]
+                Determines how to connect and execute commands. If it
+                is set to True, the Cisco Testbed is used. If set to
+                False, we use a own ThreadPoolExecutor. The former is
+                more standadized, but if one device fail, they all
+                fail. By default, the configured value for the object
+                is used.
+
+            Returns
+            -------
+            dict:
+                The dict that contains the parsed commands
+        """
+
+        # Set the method to connect
+        if use_testbed is None:
+            use_testbed = self.use_testbed
+
+        # Check if the Cisco TestBed is created
+        if use_testbed:
+            # Connect using the Cisco TestBed
+            self.logger.info(
+                'Sending a parsing-command to all devices using the Cisco ' +
+                'TestBed')
+            return self.testbed.parse(command)
+        else:
+            # Connect device one by one
+            self.logger.info(
+                'Sending a parsing-command to all devices one by one')
+
+            # Empty return dict
+            return_dict = dict()
+
+            # Generate the arguments
+            devices = [
+                {
+                    'device': obj,
+                    'command': command,
+                    'return_dict': return_dict
+                }
+                for device, obj in self.testbed.devices.items()
+            ]
+
+            # Start the threads
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                executor.map(self.parse_command, devices)
+
+            self.logger.info('Done with running the parse commands')
+
+            return return_dict
+
+    def connect(self, use_testbed: Optional[bool] = None) -> None:
+        """
+            Method to connect to the devices
+
+            Parameters
+            ----------
+            use_testbed : Optional[bool] [default=None]
+                Determines how to connect and execute commands. If it
+                is set to True, the Cisco Testbed is used. If set to
+                False, we use a own ThreadPoolExecutor. The former is
+                more standadized, but if one device fail, they all
+                fail. By default, the configured value for the object
+                is used.
+
+            Returns
+            -------
+            Return values
+        """
+
+        # Load the testbed
+        self.load_testbed()
+
+        # Set the method to connect
+        if use_testbed is None:
+            use_testbed = self.use_testbed
+
+        # Check if the Cisco TestBed is created
+        if use_testbed:
+            # Connect using the Cisco TestBed
+            self.logger.info(
+                'Connecting to all devices using the Cisco TestBed')
             self.testbed.connect(
                 init_exec_commands=[],
                 init_config_commands=[],
                 log_stdout=self.log_output)
+        else:
+            # Connect device one by one
+            self.logger.info('Connecting to all devices one by one')
+            devices = [obj for device, obj in self.testbed.devices.items()]
 
-        # Return the testbed
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                executor.map(self.connect_device, devices)
+
+    def __enter__(self):
+        """ Start of the context manager """
+
+        # Load the testbed
+        self.load_testbed()
+
+        # Connect, if we need to
+        if self.auto_connect:
+            self.connect()
+
+            # Return the testbed
         return self
 
     def __exit__(self,
