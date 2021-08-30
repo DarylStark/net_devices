@@ -2,10 +2,15 @@
     Package to talk to network devices using Cisco Genie.
 """
 
-from .set_credentials import set_credentials
+from .initialize import initialize
 
-# Dictionary for credentials
-credentials = {
-    'username': None,
-    'password': None
+# Dictionary for the configuratoin
+configuration = {
+    'threading': {
+        'max_threads': 128,
+    },
+    'default_credentials': {
+        'username': None,
+        'password': None
+    }
 }

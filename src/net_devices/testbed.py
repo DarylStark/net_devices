@@ -7,11 +7,11 @@ from types import TracebackType
 from typing import Dict, List, Optional, Type, Union
 from genie.testbed import load
 import unicon.core.errors
-from net_devices import credentials
+from net_devices import configuration
 from enum import Enum
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from unicon.core.errors import ConnectionError
+from unicon.core.errors import ConnectionError, SubCommandFailure
 from genie.libs.parser.utils.common import ParserNotFound
 from genie.metaparser.util.exceptions import SchemaEmptyParserError
 
@@ -177,6 +177,25 @@ class TestBed:
         except ConnectionError:
             self.logger.error(f'Couldn\'t connect to device {device.name}')
 
+    def disconnect_device(self, device) -> None:
+        """
+            Method to disconnect from a device.
+
+            Parameters
+            ----------
+            device
+                The device to disconnect from
+
+            Returns
+            -------
+            None
+        """
+        self.logger.info(f'Disconnecting from {device.name}')
+        try:
+            device.execute('exit')
+        except SubCommandFailure:
+            pass
+
     def parse_command(self, arguments: dict) -> None:
         """
             Method to run a parse command on a device
@@ -270,7 +289,7 @@ class TestBed:
             ]
 
             # Start the threads
-            with ThreadPoolExecutor(max_workers=3) as executor:
+            with ThreadPoolExecutor(max_workers=configuration['threading']['max_threads']) as executor:
                 executor.map(self.parse_command, devices)
 
             self.logger.info('Done with running the parse commands')
@@ -317,8 +336,44 @@ class TestBed:
             self.logger.info('Connecting to all devices one by one')
             devices = [obj for device, obj in self.testbed.devices.items()]
 
-            with ThreadPoolExecutor(max_workers=3) as executor:
+            with ThreadPoolExecutor(max_workers=configuration['threading']['max_threads']) as executor:
                 executor.map(self.connect_device, devices)
+
+    def disconnect(self, use_testbed: Optional[bool] = None) -> None:
+        """
+            Method to disconnect from the devices
+
+            Parameters
+            ----------
+            use_testbed : Optional[bool] [default=None]
+                Determines how to connect and execute commands. If it
+                is set to True, the Cisco Testbed is used. If set to
+                False, we use a own ThreadPoolExecutor. The former is
+                more standadized, but if one device fail, they all
+                fail. By default, the configured value for the object
+                is used.
+
+            Returns
+            -------
+            Return values
+        """
+        # Set the method to disconnect
+        if use_testbed is None:
+            use_testbed = self.use_testbed
+
+        # Check if the Cisco TestBed is created
+        if use_testbed:
+            # Connect using the Cisco TestBed
+            self.logger.info(
+                'Disconnecting from all devices using the Cisco TestBed')
+            self.testbed.disconnect()
+        else:
+            # Disconnect device one by one
+            self.logger.info('Disconnecting to all devices one by one')
+            devices = [obj for device, obj in self.testbed.devices.items()]
+
+            with ThreadPoolExecutor(max_workers=configuration['threading']['max_threads']) as executor:
+                executor.map(self.disconnect_device, devices)
 
     def __enter__(self):
         """ Start of the context manager """
@@ -330,7 +385,7 @@ class TestBed:
         if self.auto_connect:
             self.connect()
 
-            # Return the testbed
+        # Return the testbed
         return self
 
     def __exit__(self,
@@ -338,10 +393,9 @@ class TestBed:
                  exception_value: Optional[BaseException],
                  traceback: Optional[TracebackType]) -> bool:
         """ Context manager is done! """
-        try:
-            self.testbed.disconnect()
-        except unicon.core.errors.SubCommandFailure:
-            pass
+
+        # Disconnect from the devices
+        self.disconnect()
 
         # If 'type' is None, there was no error so we can return True.
         # Otherwise, False is returned and the exception is passed
@@ -357,7 +411,7 @@ class TestBed:
                 'ip': device.hostname.upper(),
                 'port': 22,
                 'protocol': 'ssh',
-                'username': credentials['username'],
-                'password': credentials['password'],
+                'username': configuration['default_credentials']['username'],
+                'password': configuration['default_credentials']['password'],
                 'os': device.device_type.value
             }
