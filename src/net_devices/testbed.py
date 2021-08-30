@@ -407,8 +407,8 @@ class TestBed:
 
         # Add all devices to the list for the Genie Testbed
         for device in self.devices:
-            self.testbed_devices['devices'][device.hostname.upper()] = {
-                'ip': device.hostname.upper(),
+            self.testbed_devices['devices'][device.hostname] = {
+                'ip': device.hostname,
                 'port': 22,
                 'protocol': 'ssh',
                 'username': configuration['default_credentials']['username'],
