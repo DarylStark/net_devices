@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from unicon.core.errors import ConnectionError, SubCommandFailure
 from genie.libs.parser.utils.common import ParserNotFound
 from genie.metaparser.util.exceptions import SchemaEmptyParserError
+from net_devices import Command
 
 
 class DeviceType(Enum):
@@ -230,20 +231,29 @@ class TestBed:
         if device.is_connected():
             try:
                 return_dict[device.name] = device.parse(command)
-            except (ParserNotFound, SchemaEmptyParserError):
-                return_dict[device.name] = None
+            except Exception as e:
+                return_dict[device.name] = {
+                    'error': str(e)
+                }
         else:
             self.logger.warning(
                 f'Skipping device "{device}" because it is not connected')
 
-    def parse(self, command: str, use_testbed: Optional[bool] = None) -> dict:
+    def parse(
+        self,
+        command: str,
+        use_testbed: Optional[bool] = None
+    ) -> dict:
         """
             Method to run a parsed command.
 
             Parameters
             ----------
-            command : str
-                The command to send.
+            command : Union[str, Command]
+                The command to send. Can be a string of a Command
+                object in case you want to use different commands
+                per platform. Only works when not using the Cisco
+                testbed.
 
             use_testbed : Optional[bool] [default=None]
                 Determines how to connect and execute commands. If it
@@ -278,15 +288,35 @@ class TestBed:
             # Empty return dict
             return_dict = dict()
 
+            # If we got a string, we have to transform it to a Command
+            # object
+            if type(command) is str:
+                command = Command(command=command)
+
+            # Update the commands in the Command object
+            command.set_commands()
+
+            # Empty list of devices
+            devices = list()
+
             # Generate the arguments
-            devices = [
-                {
-                    'device': obj,
-                    'command': command,
-                    'return_dict': return_dict
-                }
-                for device, obj in self.testbed.devices.items()
-            ]
+            command_families = {
+                'ios': 'command_ios',
+                'iosxr': 'command_ios_xr',
+                'iosxe': 'command_ios_xe',
+                'nxos': 'command_nx_os'
+            }
+
+            for os, attribute in command_families.items():
+                devices += [
+                    {
+                        'device': obj,
+                        'command': getattr(command, attribute),
+                        'return_dict': return_dict
+                    }
+                    for device, obj in self.testbed.devices.items()
+                    if obj.os == os and getattr(command, attribute) != ''
+                ]
 
             # Start the threads
             with ThreadPoolExecutor(max_workers=configuration['threading']['max_threads']) as executor:

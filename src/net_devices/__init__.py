@@ -2,7 +2,8 @@
     Package to talk to network devices using Cisco Genie.
 """
 
-from .initialize import initialize
+from net_devices.initialize import initialize
+from net_devices.command import Command
 
 # Dictionary for the configuratoin
 configuration = {
