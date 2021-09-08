@@ -2,6 +2,31 @@
 
 This Python 3 library can be used to use Cisco Genie as a Context Manager to parse commands. The package makes it possible to send commands to devices and specify which commands to run on Cisco IOS devices and Cisco IOS XR devices. This makes it easy to use the full potentionl of Cisco Genie without creating the boilerplate code to differentiate between devices and handle connection management.
 
+## Install instructions
+
+The installation of the library is fairly simple;
+
+First, we create a Python Virtual Environment:
+
+```bash
+python -m venv env
+```
+
+The virtual environment is now configured in the folder `env`. Next, we activate the virtual environment:
+
+```bash
+source env/bin/activate
+```
+
+After that, we install this library into the environment
+
+```bash
+cd src/
+pip3 install .
+```
+
+Now, you can use the library to play with your devices. You can, ofcourse, install it in your global Python packages.
+
 ## Usage instructions
 
 The library is supposed to be used as library. The following code is an example on how to use it:
