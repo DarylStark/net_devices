@@ -6,7 +6,13 @@ This Python 3 library can be used to use Cisco Genie as a Context Manager to par
 
 The installation of the library is fairly simple;
 
-First, we create a Python Virtual Environment:
+Clone the repository:
+
+```bash
+git clone https://github.com/Routz-Integreater/net_devices.git
+```
+
+Then, we create a Python Virtual Environment:
 
 ```bash
 python -m venv env
